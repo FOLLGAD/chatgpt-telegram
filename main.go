@@ -96,6 +96,60 @@ func main() {
 	log.Printf("Started Telegram bot! Message @%s to start.", bot.Self.UserName)
 
 	for update := range updates {
+		println("before")
+		fromuser := update.SentFrom()
+		if fromuser == nil {
+			continue
+		}
+		userId := strconv.FormatInt(update.SentFrom().ID, 10)
+
+		if os.Getenv("TELEGRAM_ID") != "" && userId != os.Getenv("TELEGRAM_ID") {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+			msg.ReplyToMessageID = update.Message.MessageID
+			msg.ParseMode = "Markdown"
+
+			msg.Text = "You are not authorized to use this bot."
+			bot.Send(msg)
+			continue
+		}
+		if update.InlineQuery != nil {
+			// print
+			log.Printf("[%s] thinking... %s", update.InlineQuery.From.UserName, update.InlineQuery.Query)
+
+			m := tgbotapi.NewInlineQueryResultArticleMarkdownV2(
+				update.InlineQuery.ID,
+				"Sherlock",
+				"Loading\\.\\.\\.",
+			)
+			m.Description = "Make an inquiry to Sherlock"
+			conf := tgbotapi.InlineConfig{
+				InlineQueryID: update.InlineQuery.ID,
+				Results:       []interface{}{m},
+				IsPersonal:    true,
+			}
+
+			sentMsg, _ := bot.Send(
+				conf,
+			)
+
+			response, err := query_chatgpt(update.InlineQuery.Query, page, bot, tgbotapi.NewChatAction(1, "typing"))
+			msg := tgbotapi.NewEditMessageText(update.InlineQuery.From.ID, sentMsg.MessageID, "Loading...")
+			if err != nil {
+				msg.Text = fmt.Sprintf("Error: %v", err)
+			} else {
+				msg.Text = response
+			}
+
+			// print msg
+			log.Printf("[%s] %s", update.InlineQuery.From.UserName, msg.Text)
+
+			bot.Send(msg)
+
+			continue
+		}
+
+		println("after")
+
 		if update.Message == nil {
 			continue
 		}
@@ -104,12 +158,8 @@ func main() {
 		msg.ReplyToMessageID = update.Message.MessageID
 		msg.ParseMode = "Markdown"
 
-		userId := strconv.FormatInt(update.Message.Chat.ID, 10)
-		if os.Getenv("TELEGRAM_ID") != "" && userId != os.Getenv("TELEGRAM_ID") {
-			msg.Text = "You are not authorized to use this bot."
-			bot.Send(msg)
-			continue
-		}
+		// print debug
+		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 
 		if !update.Message.IsCommand() {
 			response, err := query_chatgpt(update.Message.Text, page, bot, tgbotapi.NewChatAction(update.Message.Chat.ID, "typing"))
